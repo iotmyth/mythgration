@@ -48,5 +48,5 @@ spec:
     protocol: TCP
     targetPort: 3000
   selector:
-    app: iotmyth-app
-  type: NodePort
+    app: iotmyth-migration-backend
+  type: ClusterIP
