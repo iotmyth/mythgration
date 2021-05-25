@@ -1,7 +1,7 @@
 const express = require('express');
 const Datas = require('../models/Datas');
 const router = express.Router();
-const { cluster, mqttClient, app } = require('../app')
+const { cluster, app } = require('../app')
 const DataRedis = require('../models/DataRedis');
 const { promisify } = require('util');
 require('dotenv/config');
@@ -172,7 +172,7 @@ function migrateRedisToMongo(enabled, callback) {
  * Executing cron via Kubernetes CronJobs instead of using node-cron
  * This will prevent duplicated ID on mongoDB insert.
  */
-router.get('/migrate-redis-to-mongo', (req, res) => {
+router.get('/', (req, res) => {
     res.setHeader('Content-Type', 'application/json')
     migrateRedisToMongo(true, (err, msg) => {
         if (err) {
@@ -181,67 +181,6 @@ router.get('/migrate-redis-to-mongo', (req, res) => {
             res.send([{ message: msg }, { timestamp: new Date() }])
         }
     });
-
-})
-
-/**
- * 
- * Method to insert data --> Using redis list command
- * For append list, we can use list lpush
- * so that we don't need to get all data and push it one-by one
- * @see https://stackoverflow.com/questions/55294193/append-an-array-to-existing-key-in-redis-using-php
- * 
- */
-// save post data
-router.post('/', async (req, res) => {
-    const dataRedis = new DataRedis({
-        authId: req.body.authId,
-        topic: req.body.topic,
-        value: generateRandomNumber(), // this only example of random data
-        tag: req.body.tag,
-        group: req.body.group,
-        createdAt: new Date(),
-        updatedAt: new Date()
-    })
-
-    try {
-        // LPUSH redis command
-        // to push data from left to right list
-        cluster.lpush(searchTerm, `${JSON.stringify(dataRedis)}`);
-        res.json(dataRedis)
-
-        // emitting back the data to the client-side
-        app.get("socketService").emiter('update-data', dataRedis);
-    } catch (err) {
-        console.log('Catch an error: ', err)
-    }
-})
-
-/**
- * For MQTT request
- * First, we have to subscribe of the available topic
- * listen on message buffer, buffer is usually hex value
- */
-var topic = 'house/+/+';
-mqttClient.subscribe(topic);
-mqttClient.on('message', function (topic, message) {
-    if (topic == 'house/room/temperature') {
-        // create one msg variable to fetch each field
-        var msg = JSON.parse(message.toString());
-        const dataRedis = new DataRedis({
-            authId: msg['authId'],
-            topic: msg['topic'],
-            value: generateRandomNumber(),
-            tag: msg['tag'],
-            group: msg['group'],
-            createdAt: new Date(),
-            updatedAt: new Date()
-        })
-
-        app.get("socketService").emiter('update-data', dataRedis);
-        cluster.lpush(searchTerm, `${JSON.stringify(dataRedis)}`);
-    }
-
 })
 
 function callbackMigrate(reply) {
@@ -253,149 +192,6 @@ function callbackMigrate(reply) {
         // console.log('Flag: ' + flagOfCacheMiss);
     }
 }
-
-function callbackPush(reply) {
-    console.log(reply)
-    if (flagOfCacheMiss === true && numberOfCacheMiss !== 0 && reply >= numberOfCacheFetch) {
-        cluster.del(cacheTerm);
-        flagOfCacheMiss = false;
-        numberOfCacheMiss = 0;
-        // console.log('Cache deleted: ' + numberOfCacheMiss);
-        // console.log('Flag: ' + flagOfCacheMiss);
-    }
-}
-
-function generateRandomNumber() {
-    let min = 30;
-    let max = 60;
-    let highlightedNumber = Math.floor(Math.random() * (max - min)) + min;
-    return highlightedNumber;
-};
-
-
-/**
- * Basically, we have 2 kind of list for obtaining our cache.
- * 1. searchTerm: stands for data obtained by active device
- * 2. cacheTerm: stands for data obtained from MongoDB
- * 
- * READ-THROUGH flow:
- * 1. Check if datas are available in cacheTerm list
- * 2. We are also check data length from searchTerm
- * 3. If point 1 and 2 doesn't exist, do:
- * 4. Obtain data from MongoDB (CACHE MISS)
- * 5. With using the same data from #4, we also have to save to the cacheTerm list
- * 6. If there is any next request, so we will obtain data from cacheTerm PLUS searchTerm "CACHE HIT" 
- * (if device still sending the data)
- */
-router.get('/', async (req, res) => {
-
-    try {
-
-        // Callback for assigning value length of list inside async function
-        var callbackPullData = function (reply) {
-            currentListLength = reply;
-        }
-
-        // retrieving the cache from active device
-        const getCacheFromDataPushed = promisify(cluster.lrange).bind(cluster);
-        const cacheFromDataPushed = getCacheFromDataPushed(searchTerm, (numberOfCacheMiss == 0 ? -1 : 0), (numberOfCacheMiss == 0 ? 0 : numberOfCacheMiss - 1));
-        cacheFromDataPushed.then(async (reply) => {
-            callbackPullData(reply.length)
-        })
-
-        // First, we are going to check temp data cache using event cacheTerm to "CACHE HIT"
-        await cluster.lrange(cacheTerm, ((numberOfCacheMiss + currentListLength) <= numberOfCacheFetch ? 0 : 0 - 1), ((numberOfCacheMiss + currentListLength) <= numberOfCacheFetch ? Math.abs(numberOfCacheMiss - currentListLength) - 1 : 0), async (err, keys) => {
-            if (err) throw err;
-
-            // if data available in a targeted list (searchTerm or cacheTerm)
-            // we will always "CACHE HIT"
-            if (keys.length > 0 || currentListLength > 0) {
-                cacheFromDataPushed.then(async (reply) => {
-                    try {
-                        // reproduce to become array of object and give requester a response
-                        res.json(JSON.parse('[' + (keys.length > 0 && reply.length > 0 ? keys + ',' + reply : (keys.length > 0 && reply.length == 0 ? keys : (keys.length == 0 && reply.length > 0 ? reply : ''))) + ']').reverse())
-                    } catch (e) {
-                        console.log(e)
-                    }
-                })
-            } else {
-
-                // if data is not available in redis, it means "CACHE MISS" and 
-                // we have to retrieve data from MongoDB
-                const datas = await Datas.find().sort({ 'createdAt': -1 }).limit(numberOfCacheFetch);
-
-                // send data back as response
-                res.json(datas);
-
-                // also we have to put it in cacheTerm list
-                // therefore everytime the next request executed, 
-                // we will get the data from redis (CACHE-HIT)
-                for (var i = 0; i < datas.length; i++) {
-                    // the important this is, we have to store JSON data with stringify
-                    // since redis is key-value stored data, and 
-                    // It's not document database like Mongo
-                    cluster.lpush(cacheTerm, JSON.stringify(datas[i]));
-                }
-
-                // flag as "CACHE MISS"
-                if (datas.length !== 0) {
-                    numberOfCacheMiss = datas.length;
-                    flagOfCacheMiss = true;
-                }
-            }
-        });
-    } catch (error) {
-        console.error(error);
-    }
-})
-
-// get specific data
-router.get('/:dataId', async (req, res) => {
-    try {
-        const data = await Datas.findById(req.params.dataId);
-        res.json(data);
-
-    } catch (err) {
-        console.log('Catch an error: ', err)
-    }
-})
-
-// update data
-router.patch('/:dataId', async (req, res, next) => {
-    try {
-        const updateData = await Datas.findByIdAndUpdate(
-            {
-                _id: req.params.dataId
-            },
-            {
-                $set:
-                {
-                    authId: req.body.authId,
-                    topic: req.body.topic,
-                    value: req.body.value,
-                    tag: req.body.tag,
-                    group: req.body.group
-                }
-            }, { useFindAndModify: false }
-        );
-
-        res.json(updateData);
-        app.get("socketService").emiter('update-data', updateData);
-    } catch (err) {
-        console.log('Catch an error: ', err)
-        // next(err);
-    }
-})
-
-// delete post
-router.delete('/:dataId', async (req, res) => {
-    try {
-        const removeData = await Datas.deleteOne({ _id: req.params.dataId });
-        res.json(removeData);
-    } catch (err) {
-        console.log('Catch an error: ', err)
-    }
-})
 
 module.exports = router;
 

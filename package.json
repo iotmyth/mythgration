@@ -1,15 +1,15 @@
 {
-  "name": "iotmyth",
+  "name": "mythgration",
   "version": "1.0.0",
-  "description": "IoTMyth is an IoT Platform project at scale, a myth that would rises the power of sensing of your smart-things.",
+  "description": "Mythgration backend for IoTMyth. IoTMyth is an IoT Platform project at scale, a myth that would rises the power of sensing of your smart-things.",
   "main": "app.js",
   "scripts": {
     "start": "export NODE_ENV=production&& node app.js",
-    "dev": "export NODE_ENV=development&& nodemon ./app.js localhost 3080"
+    "dev": "export NODE_ENV=development&& nodemon ./app.js localhost 3000"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iotmyth/iotmyth.git"
+    "url": "git+https://github.com/iotmyth/mythgration.git"
   },
   "keywords": [
     "iot",
@@ -20,15 +20,12 @@
   "author": "Alfian Firmansyah",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/iotmyth/iotmyth/issues"
+    "url": "https://github.com/iotmyth/mythgration/issues"
   },
-  "homepage": "https://github.com/iotmyth/iotmyth#readme",
+  "homepage": "https://github.com/iotmyth/mythgration#readme",
   "dependencies": {
-    "@angular/cli": "^11.2.9",
-    "@socket.io/sticky": "^1.0.0",
     "@types/jquery": "^3.5.5",
     "body-parser": "^1.19.0",
-    "cluster": "^0.7.7",
     "cors": "^2.8.5",
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
@@ -36,13 +33,8 @@
     "ioredis": "^4.27.1",
     "mongoose": "^5.12.4",
     "morgan": "^1.10.0",
-    "mqtt": "^4.2.6",
     "node-cron": "^2.0.3",
-    "os": "^0.1.1",
-    "redis": "^3.1.1",
-    "socket.io": "^4.0.2",
-    "socket.io-redis": "^6.1.0",
-    "sticky-session": "^1.1.2"
+    "redis": "^3.1.2"
   },
   "devDependencies": {
     "@babel/core": "^7.13.15",

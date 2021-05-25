@@ -2,40 +2,39 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: iotmyth-app
-  name: iotmyth-app
-  namespace: iotmyth
+    app: iotmyth-migration-backend
+  name: iotmyth-migration-backend
+  namespace: default
 spec:
-  replicas: 5
+  replicas: 1
   selector:
     matchLabels:
-      app: iotmyth-app
+      app: iotmyth-migration-backend
   template:
     metadata:
       labels:
-        app: iotmyth-app
+        app: iotmyth-migration-backend
     spec:
       containers:
       - image: CONTAINER_IMAGE #ini didapatkan dari buildspec
-        name: iotmyth-app
+        name: iotmyth-migration-backend
         imagePullPolicy: Always
         resources: 
           requests:
             memory: "3500Mi"
             cpu: "1000m"
         ports:
-          - containerPort: 3080 
+          - containerPort: 3000 
 status: {}
 
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
-  name: iotmyth-app
-  namespace: iotmyth
+  name: iotmyth-migration-backend
+  namespace: default
   labels:
-    run: iotmyth-app
+    run: iotmyth-migration-backend
   annotations:
     #service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
 spec:
@@ -43,11 +42,11 @@ spec:
   - name: http
     port: 80
     protocol: TCP
-    targetPort: 3080
+    targetPort: 3000
   - name: https
     port: 443
     protocol: TCP
-    targetPort: 3080
+    targetPort: 3000
   selector:
     app: iotmyth-app
   type: NodePort
