@@ -4,7 +4,7 @@
   "description": "Mythgration backend for IoTMyth. IoTMyth is an IoT Platform project at scale, a myth that would rises the power of sensing of your smart-things.",
   "main": "app.js",
   "scripts": {
-    "start": "export NODE_ENV=production&& node app.js",
+    "start": "export NODE_ENV=production&& node --max-old-space-size=8192 app.js",
     "dev": "export NODE_ENV=development&& nodemon ./app.js localhost 3000"
   },
   "repository": {
