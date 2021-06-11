@@ -31,7 +31,7 @@ var currentListLength = 0;
  * 3. At this step we can produce anything with data 
  *   (e.g., send to cliend-side to visualization)
  * 
- * WRITE-THROUGH:
+ * WRITE-BACK:
  * 3. We don't expire the list, we will move this list to mongoDB using LRANGE and LTRIM command instead
  * 4. I will use half-migrate method, 
  *    so if there are 1000 datas in redis, 
