@@ -121,6 +121,8 @@ function migrateRedisToMongo(enabled, callback) {
                             if (is_finished) {
 
                                 // LTRIM using this formula that I got here: LTRIM list 0 -{halfdevider + 1}
+                                // It meant we are going to trim last amount of $halfdevider data.
+                                // if halfdevider = 1, it meant 1 data will be trimmed.
                                 // forcing function to return promise
                                 const trimData = promisify(cluster.ltrim).bind(cluster);
                                 trimData(searchTerm, 0, (JSON.parse('[' + reply + ']').slice(j, j + hundredThousand).length + 1) * -1);
