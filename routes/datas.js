@@ -11,6 +11,10 @@ var numberOfCacheFetch = 50;
 var flagOfCacheMiss = false;
 var numberOfCacheMiss = 0;
 var currentListLength = 0;
+const {
+    performance,
+    PerformanceObserver
+} = require('perf_hooks');
 
 /** 
  * @author Alfian Firmansyah
@@ -82,15 +86,22 @@ function migrateRedisToMongo(enabled, callback) {
                     // total amount of data migrated
                     var amountDataMigratedTotal = 0;
 
-                    // shortDataArray is going to be used for final (devided array)
-                    var shortDataArray = [];
-
                     // error flag
                     var is_error = false;
 
                     // string migration for response
                     var responseString = '';
+
+                    // header of execution
                     var headString = '';
+                    headString += '\n==============================================\n';
+                    headString += 'MIGRATION WILL BE DONE BY DISRIBUTED EXECUTION\n';
+                    headString += 'This program was created by Alfian Firmansyah-\n';
+                    headString += 'Designed algorithm was copyrighted, use wisely\n';
+                    headString += '==============================================\n';
+
+                    // index to flag the batch
+                    var index = 1;
 
                     // slicing the array, assign to parent array, 
                     // make sliced array inside shortDataArray using quarterDevider
@@ -98,12 +109,66 @@ function migrateRedisToMongo(enabled, callback) {
                     if (JSON.parse('[' + reply + ']').length >= hundredThousand) {
                         // MongoDB limit hundredThousand per batch
                         for (var j = 0; j < JSON.parse('[' + reply + ']').length; j += hundredThousand) {
-                            shortDataArray.push(JSON.parse('[' + reply + ']').slice(j, j + hundredThousand));
+                            if (j == 0) {
+                                console.log(headString);
+                            }
+
+                            // Bulk insert to MongoDB per sliced array index, assign response (usually boolean)
+                            var t0 = performance.now();
+                            var is_finished = await Datas.insertMany(JSON.parse('[' + reply + ']').slice(j, j + hundredThousand));
+
+                            // Get the previous boolean flag, so we can also commit our LTRIM to delete from Redis
+                            if (is_finished) {
+
+                                // LTRIM using this formula that I got here: LTRIM list 0 -{halfdevider + 1}
+                                // forcing function to return promise
+                                const trimData = promisify(cluster.ltrim).bind(cluster);
+                                trimData(searchTerm, 0, (JSON.parse('[' + reply + ']').slice(j, j + hundredThousand).length + 1) * -1);
+                                cluster.lrange(cacheTerm, 0, numberOfCacheFetch - 1, function (err, reply) {
+                                    callbackMigrate(reply.length);
+                                })
+                                amountDataMigratedTotal += JSON.parse('[' + reply + ']').slice(j, j + hundredThousand).length;
+                                responseString += `========BATCH ${index}=========\n`;
+                                responseString += `[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`;
+                                console.log(`========BATCH ${index}=========\n`);
+                                console.log(`[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`);
+                                index++;
+                            } else {
+                                is_error = true;
+                            }
+                            var t1 = performance.now()
                         }
                     } else {
                         // quarter legnth per batch
                         for (var j = 0; j < JSON.parse('[' + reply + ']').length; j += quarterDevider) {
-                            shortDataArray.push(JSON.parse('[' + reply + ']').slice(j, j + quarterDevider));
+                            if (j == 0) {
+                                console.log(headString);
+                            }
+
+                            // Bulk insert to MongoDB per sliced array index, assign response (usually boolean)
+                            var t0 = performance.now();
+                            var is_finished = await Datas.insertMany(JSON.parse('[' + reply + ']').slice(j, j + quarterDevider));
+
+                            // Get the previous boolean flag, so we can also commit our LTRIM to delete from Redis
+                            if (is_finished) {
+
+                                // LTRIM using this formula that I got here: LTRIM list 0 -{halfdevider + 1}
+                                // forcing function to return promise
+                                const trimData = promisify(cluster.ltrim).bind(cluster);
+                                trimData(searchTerm, 0, (JSON.parse('[' + reply + ']').slice(j, j + quarterDevider).length + 1) * -1);
+                                cluster.lrange(cacheTerm, 0, numberOfCacheFetch - 1, function (err, reply) {
+                                    callbackMigrate(reply.length);
+                                })
+                                amountDataMigratedTotal += JSON.parse('[' + reply + ']').slice(j, j + quarterDevider).length;
+                                responseString += `========BATCH ${index}=========\n`;
+                                responseString += `[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`;
+                                console.log(`========BATCH ${index}=========\n`);
+                                console.log(`[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`);
+                                index++;
+                            } else {
+                                is_error = true;
+                            }
+                            var t1 = performance.now()
                         }
                     }
 
@@ -111,43 +176,11 @@ function migrateRedisToMongo(enabled, callback) {
                     // execute distributed batch migration to reduce server performance issue
                     // Accessing previous parent array (array of array), and doing stuff of shortDataArray per index
                     // anyway, this loop will be executed 4 + 1 (for remainder) times maximum
-                    for (var k = 0, len = shortDataArray.length; k < len; k++) {
-                        if (k == 0) {
 
-                            // header
-                            headString += '==============================================\n';
-                            headString += 'MIGRATION WILL BE DONE BY DISRIBUTED EXECUTION\n';
-                            headString += 'This program was created by Alfian Firmansyah-\n';
-                            headString += 'Designed algorithm was copyrighted, use wisely\n';
-                            headString += '==============================================\n';
-                            console.log(headString);
-                        }
-
-                        // Bulk insert to MongoDB per sliced array index, assign response (usually boolean)
-                        var is_finished = await Datas.insertMany(shortDataArray[k]);
-
-                        // Get the previous boolean flag, so we can also commit our LTRIM to delete from Redis
-                        if (is_finished) {
-
-                            // LTRIM using this formula that I got here: LTRIM list 0 -{halfdevider + 1}
-                            // forcing function to return promise
-                            const trimData = promisify(cluster.ltrim).bind(cluster);
-                            trimData(searchTerm, 0, (shortDataArray[k].length + 1) * -1);
-                            cluster.lrange(cacheTerm, 0, numberOfCacheFetch - 1, function (err, reply) {
-                                callbackMigrate(reply.length);
-                            })
-                            amountDataMigratedTotal += shortDataArray[k].length;
-                            responseString += `========BATCH ${k + 1}=========\n`;
-                            responseString += `[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`;
-                            console.log(`========BATCH ${k + 1}=========\n`);
-                            console.log(`[${amountDataMigratedTotal}/${halfDevider}] IoT Data has been migrated\n`);
-                        } else {
-                            is_error = true;
-                        }
-                    }
                     if (!is_error) {
                         responseString += '==============================================\n';
                         responseString += `[OK] Total data migrated = ${amountDataMigratedTotal}\n`;
+                        responseString += `Execution Time = ${(t1 - t0) / 1000} s\n`;
                         responseString += '==============================================\n';
                         callback(null, headString + responseString);
                         console.log(headString + responseString);
@@ -192,6 +225,30 @@ function callbackMigrate(reply) {
         // console.log('Flag: ' + flagOfCacheMiss);
     }
 }
+
+router.get('/generateData', (req, res) => {
+    var dataRedis = new DataRedis({
+        authId: 'authenticationID-123456',
+        topic: 'termometer',
+        value: 10, // this only example of random data
+        tag: 'room-a',
+        group: 'house-a',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    })
+
+    try {
+        // LPUSH redis command
+        // to push data from left to right list
+        var n = 90000;
+        for (let i = 0; i < n; i++) {
+            cluster.lpush(searchTerm, `${JSON.stringify(dataRedis)}`);
+        }
+        res.json(dataRedis)
+    } catch (e) {
+        console.log(e);
+    }
+})
 
 module.exports = router;
 
